@@ -5,7 +5,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [validate-inclusive-range-overflow]
   pull_request:
 
 permissions:
@@ -94,9 +94,16 @@ jobs:
   compiler:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUST_TEST_THREADS: 2
+      GOFLAGS: -p=2
     steps:
       - name: Checkout (pinned v4)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Install pinned toolchains (same URLs as tools/env.sh discipline)
         run: |
           set -e
@@ -104,6 +111,33 @@ jobs:
           sudo tar -C /usr/local -xzf /tmp/go.tgz
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0
           echo "/usr/local/go/bin:$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: New regressions fail with original emitter
+        run: |
+          set -eu
+          python3 - <<'PYTHON'
+          import os
+          import pathlib
+          import subprocess
+          import tempfile
+          emitter_path = pathlib.Path('compiler/crates/hy-emit/src/stmt.rs')
+          patched = emitter_path.read_bytes()
+          original = subprocess.check_output(['git', 'show', '44a08b96dca77e49cf8c6469d8c177ef908b5234:compiler/crates/hy-emit/src/stmt.rs'])
+          with tempfile.TemporaryDirectory(prefix='hyb-original-emitter-') as target:
+              baseline_env = dict(os.environ)
+              baseline_env['CARGO_TARGET_DIR'] = target
+              try:
+                  emitter_path.write_bytes(original)
+                  result = subprocess.run(['cargo', 'test', '--manifest-path', 'compiler/Cargo.toml', '-p', 'hyb', '--test', 'inclusive_ranges', '--locked', '--', '--nocapture'], env=baseline_env, capture_output=True, text=True, timeout=600)
+              finally:
+                  emitter_path.write_bytes(patched)
+          log = result.stdout + result.stderr
+          print(log)
+          if result.returncode != 101 or 'test result: FAILED. 1 passed; 4 failed;' not in log:
+              raise SystemExit('Expected four behavioural regression failures and one unchanged positive control')
+          if 'inclusive maximum for int8' not in log or 'left: "127\\n-128\\n-127\\n3\\n"' not in log:
+              raise SystemExit('Missing executed signed-wrap regression output')
+          print('VERIFIED_ORIGINAL_EMITTER: four regressions fail; ordinary/empty/exclusive positive control passes; patched bytes restored; separate Cargo target used.')
+          PYTHON
       - name: Version pins agree (env.sh ↔ README ↔ hyb ↔ PLAN)
         run: |
           set -e
