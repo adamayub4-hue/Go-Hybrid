@@ -1,0 +1,57 @@
+name: inclusive-range-proof
+on:
+  push:
+    branches: [revenue/inclusive-range-proof]
+permissions:
+  contents: read
+jobs:
+  bounded-reproduction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact upstream main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: limitlessprojects/Go-Hybrid
+          ref: 44a08b96dca77e49cf8c6469d8c177ef908b5234
+          persist-credentials: false
+      - name: Install pinned toolchains on hosted runner
+        run: |
+          set -eu
+          curl --fail --silent --show-error --location --output /tmp/go.tgz https://go.dev/dl/go1.26.9.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          curl --fail --silent --show-error https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          echo "/usr/local/go/bin:$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build exact baseline compiler
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = 44a08b96dca77e49cf8c6469d8c177ef908b5234
+          cargo build --manifest-path compiler/Cargo.toml -p hyb --locked -j2
+      - name: Check build and execute bounded maximum-int range
+        run: |
+          set -eu
+          cat > /tmp/inclusive-max.hy <<'HY'
+          import "fmt"
+
+          fn main() {
+              var high int8 = 127
+              count := 0
+              for value in high..=high {
+                  fmt.println(value)
+                  count++
+                  if count == 3 { break }
+              }
+              fmt.println(count)
+          }
+          HY
+          compiler/target/debug/hyb check /tmp/inclusive-max.hy
+          compiler/target/debug/hyb build /tmp/inclusive-max.hy -o /tmp/inclusive-max
+          timeout 5s /tmp/inclusive-max > /tmp/actual-output.txt
+          cat /tmp/actual-output.txt
+          python3 - <<'PYTHON'
+          import pathlib
+          actual = pathlib.Path('/tmp/actual-output.txt').read_text()
+          expected_bug = '127\n-128\n-127\n3\n'
+          assert actual == expected_bug, repr(actual)
+          print('VERIFIED_BASELINE_WRONG_RESULT: expected one inclusive value, observed three including signed wraparound; the repro explicitly stops after three iterations.')
+          PYTHON
