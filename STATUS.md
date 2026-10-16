@@ -1,6 +1,6 @@
 # STATUS (for the human — 15 lines max)
 
-- Numeric-range fix (#322): bounded hosted baseline reproduced; overflow/post-step candidate and execution regressions prepared. Hosted validation and upstream review pending; no local compiler run or award.
+- Numeric-range fix (#322): hosted validation GREEN (run38896979050):447 compiler tests,45/45 corpus,14+31 differential,10 examples; new executed-Go regressions fail4/pass1 original, pass5 patched. Upstream review/award pending; no local compiler run.
 
 - Phase: **MVP DONE + v0.1.0 released + community OPEN** — the conveyor ran hot again: **14 PRs processed this session (11 merged, 3 duplicate-credited closes) + 2 zombie closes + wave-wide triage comments on all 40+ open PRs**, and the **CI-down P0 was found and fixed**
 - **P0 fixed — repo CI had been dead since 96f0bc4**: a mangled conflict resolution left an unindented duplicate py_compile line (ci.yml unparseable — every Actions run died with 0 jobs) and a Makefile recipe TAB loss; PR #172's deletion merged (8b9e1d6), #199's Makefile half integrated (cb53ead), push-run GREEN on our side; the corrupted `branches: ain]` push filter is a **known issue** (CI empirically fails open and runs; byte-level fix attempts keep losing to an environment quirk — fix scripts staged in /scripts, do it via the GitHub Contents API next session)
