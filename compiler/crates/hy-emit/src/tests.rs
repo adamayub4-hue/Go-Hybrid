@@ -592,7 +592,7 @@ fn inclusive_range_and_labeled_break() {
     );
     assert!(go.contains("break hyLoop"), ":\n{}", go);
     assert!(
-        go.contains("for i := 1; i <= 8; i++ {"),
+        go.contains("for i, hyRangeOverflow0 := 1, false; !hyRangeOverflow0 && i <= 8; i, hyRangeOverflow0 = i + 1, i + 1 < i {"),
         "inclusive range:\n{}",
         go
     );

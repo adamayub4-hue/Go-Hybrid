@@ -7,6 +7,27 @@ use super::{is_package_root, to_go_name, BindingKind, EmitError, Emitter};
 use super::expr::ATOM;
 use super::shapes::lookup_conversion;
 
+/// An inclusive integer range must stop when its counter wraps, including
+/// when `continue` takes the for-post path at the type's maximum value.
+struct InclusiveRangeHeader {
+    variable: String,
+    lo: String,
+    hi: String,
+    overflow: String,
+}
+
+impl InclusiveRangeHeader {
+    fn render(&self) -> String {
+        let variable = &self.variable;
+        let lo = &self.lo;
+        let hi = &self.hi;
+        let overflow = &self.overflow;
+        format!(
+            "for {variable}, {overflow} := {lo}, false; !{overflow} && {variable} <= {hi}; {variable}, {overflow} = {variable} + 1, {variable} + 1 < {variable} {{"
+        )
+    }
+}
+
 impl Emitter {
     pub fn emit_stmt(&mut self, s: &Stmt) -> Result<(), EmitError> {
         match s {
@@ -1324,6 +1345,7 @@ impl Emitter {
                 return Ok(());
             }
         }
+        let mut inclusive_header = None;
         let head = match kind {
             ForKind::Infinite => "for {".to_string(),
             ForKind::While { cond } => {
@@ -1343,7 +1365,6 @@ impl Emitter {
                 self.hoist_tries_expr(hi)?;
                 let lo_t = self.emit_expr(lo, 0)?;
                 let hi_t = self.emit_expr(hi, 0)?;
-                let op = if *inclusive { "<=" } else { "<" };
                 // `for _ in a..b` (differential corpus 16/17/18): Go has no
                 // blank := variable — a fresh temp carries the count. The
                 // semantics are identical: the variable is never read.
@@ -1352,10 +1373,23 @@ impl Emitter {
                 } else {
                     var.clone()
                 };
-                format!(
-                    "for {} := {}; {} {} {}; {}++ {{",
-                    v, lo_t, v, op, hi_t, v
-                )
+                if *inclusive {
+                    // No `hi + 1` or subtraction: either can overflow too.
+                    // Parallel assignment computes the wrap flag from the
+                    // OLD counter. A plain or labeled continue still executes
+                    // this post statement before checking the flag.
+                    let header = InclusiveRangeHeader {
+                        variable: v,
+                        lo: lo_t,
+                        hi: hi_t,
+                        overflow: self.next_temp("hyRangeOverflow"),
+                    };
+                    let text = header.render();
+                    inclusive_header = Some(header);
+                    text
+                } else {
+                    format!("for {} := {}; {} < {}; {}++ {{", v, lo_t, v, hi_t, v)
+                }
             }
             ForKind::Iterate { vars, expr } => {
                 // E3 expression form: `for u in v.array(k)? { … }` hoists
@@ -1438,12 +1472,39 @@ impl Emitter {
                 core
             }
         };
+        let head_start = self.body.len();
+        let head_indent = self.indent;
         self.push(&head);
+        let head_end = self.body.len();
         self.for_depth += 1;
         let body_r = self.emit_block_body(&body.stmts);
         self.for_depth -= 1;
         body_r?;
         self.push("}");
+        if let Some(mut header) = inclusive_header {
+            // Render first so type names, calls, writes and closure bodies
+            // are included in the collision check. Conservative substring
+            // matches only choose a different temporary; user text is never
+            // rewritten. Nested loops edit spans AFTER this header, so its
+            // recorded offsets remain valid.
+            let first_name = header.overflow.clone();
+            while [
+                &self.body[..head_start],
+                &self.body[head_end..],
+                header.variable.as_str(),
+                header.lo.as_str(),
+                header.hi.as_str(),
+            ]
+            .iter()
+            .any(|text| text.contains(header.overflow.as_str()))
+            {
+                header.overflow = self.next_temp("hyRangeOverflow");
+            }
+            if header.overflow != first_name {
+                let text = format!("{}{}\n", "\t".repeat(head_indent), header.render());
+                self.body.replace_range(head_start..head_end, &text);
+            }
+        }
         if label.is_some() {
             self.loop_labels.pop();
         }
