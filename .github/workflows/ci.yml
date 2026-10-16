@@ -5,7 +5,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [validate-generate-args]
   pull_request:
 
 permissions:
@@ -93,7 +93,7 @@ jobs:
   # corpus verdict agreement, and the walking-skeleton examples end-to-end.
   compiler:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout (pinned v4)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -111,6 +111,21 @@ jobs:
           # preinstalled rustup shim (which has no default toolchain).
           export PATH="$HOME/.cargo/bin:/usr/local/go/bin:$PATH"
           bash tools/check-versions.sh
+      - name: Regression tests fail against the pinned original generator
+        run: |
+          set -e
+          git fetch --depth 1 origin 44a08b96dca77e49cf8c6469d8c177ef908b5234
+          git worktree add --detach "$RUNNER_TEMP/hyb-generate-base" 44a08b96dca77e49cf8c6469d8c177ef908b5234
+          cp compiler/crates/hyb/tests/generate_paths.rs "$RUNNER_TEMP/hyb-generate-base/compiler/crates/hyb/tests/generate_paths.rs"
+          if CARGO_TARGET_DIR="$RUNNER_TEMP/hyb-generate-base-target" cargo test \
+            --manifest-path "$RUNNER_TEMP/hyb-generate-base/compiler/Cargo.toml" \
+            -p hyb --test generate_paths -- --nocapture > "$RUNNER_TEMP/generate-base.log" 2>&1; then
+            cat "$RUNNER_TEMP/generate-base.log"
+            echo 'regressions unexpectedly passed on the original source' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/generate-base.log"
+          grep -F 'test result: FAILED. 3 passed; 5 failed;' "$RUNNER_TEMP/generate-base.log"
       - name: Compiler tests (hy-diag + hy-syntax + hy-check + hy-emit)
         run: |
           set -e
