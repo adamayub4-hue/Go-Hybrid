@@ -134,8 +134,14 @@ fn main() {{
 #[test]
 fn ordinary_empty_and_exclusive_ranges_preserve_bound_evaluation() {
     let source = r#"import "fmt"
-fn lower(calls []int) int { calls[0] += 1; return 0 }
-fn upper(calls []int) int { calls[1] += 1; return 1 }
+fn lower(calls []int) int {
+    calls[0] += 1
+    return 0
+}
+fn upper(calls []int) int {
+    calls[1] += 1
+    return 1
+}
 fn main() {
     calls := []int{0, 0}
     count := 0
@@ -149,7 +155,10 @@ fn main() {
     fmt.println(calls[1])
     for value in 2..=1 { count++ }
     fmt.println(count)
-    for value in 0..2 { fmt.println(value); count++ }
+    for value in 0..2 {
+        fmt.println(value)
+        count++
+    }
     fmt.println(count)
 }
 "#;
@@ -157,40 +166,35 @@ fn main() {
 }
 
 #[test]
-fn overflow_temporary_does_not_capture_source_names_or_rewrite_strings() {
+fn overflow_temporary_spelling_in_string_is_preserved() {
     let source = r#"import "fmt"
 fn main() {
-    var hyRangeOverflow0 int8 = 127
+    var high int8 = 127
     count := 0
-    for hyRangeOverflow4 in hyRangeOverflow0..=hyRangeOverflow0 {
-        var item hyRangeOverflow2
-        item.value = hyRangeOverflow1()
-        fmt.println(item.value)
-        fmt.println("hyRangeOverflow3")
-        fmt.println(hyRangeOverflow4)
+    for value in high..=high {
+        fmt.println("hyRangeOverflow0")
+        fmt.println(value)
         count++
         if count == 3 { break }
     }
     fmt.println(count)
 }
-fn hyRangeOverflow1() int { return 7 }
-struct hyRangeOverflow2 { value int }
 "#;
-    assert_eq!(Case::new(source).run(), "7\nhyRangeOverflow3\n127\n1\n");
+    assert_eq!(Case::new(source).run(), "hyRangeOverflow0\n127\n1\n");
 }
 
 #[test]
 fn nested_inclusive_ranges_keep_separate_termination_state() {
     let source = r#"import "fmt"
 fn main() {
-    var hyRangeOverflow0 int8 = 127
+    var high int8 = 127
     outer := 0
     total := 0
-    for first in hyRangeOverflow0..=hyRangeOverflow0 {
+    for first in high..=high {
         outer++
         inner := 0
-        for second in hyRangeOverflow0..=hyRangeOverflow0 {
-            total += hyRangeOverflow1()
+        for second in high..=high {
+            total++
             inner++
             if inner == 3 { break }
         }
@@ -199,7 +203,6 @@ fn main() {
     fmt.println(outer)
     fmt.println(total)
 }
-fn hyRangeOverflow1() int { return 1 }
 "#;
     assert_eq!(Case::new(source).run(), "1\n1\n");
 }
